@@ -1,0 +1,6 @@
+{
+  "name": "Aaroine",
+  "description": "Remove background from images instantly with advanced extraction tools and manual refinement.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
