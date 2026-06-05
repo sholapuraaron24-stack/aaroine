@@ -11,20 +11,37 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import StepsSection from './components/StepsSection';
 import ValueProps from './components/ValueProps';
-import ComparisonSlider from './components/ComparisonSlider';
 import FeedbackSection from './components/FeedbackSection';
 import InteractiveWorkspace from './components/InteractiveWorkspace';
+import ComparisonSlider from './components/ComparisonSlider';
 
-// Preset assets
-import dogOriginal from './assets/images/dog_original_1779871601966.png';
-import sneakerOriginal from './assets/images/sneaker_original_1779871633341.png';
-import portraitOriginal from './assets/images/portrait_original_1779871700379.png';
+// Demo Images Assets
+import manOriginal from './assets/images/man_original_1780636734486.png';
+import manRemoved from './assets/images/man_removed_1780636749414.png';
+import cameraOriginal from './assets/images/camera_original_1780637546325.png';
+import cameraRemoved from './assets/images/camera_removed_1780637564672.png';
+import superheroOriginal from './assets/images/superhero_original_1780636792330.png';
+import superheroRemoved from './assets/images/superhero_removed_1780636805783.png';
 
 export default function App() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // Load local resource as File for live pipeline demo
+  const handleTryDemoPreset = async (imageSrc: string, filename: string) => {
+    try {
+      const response = await fetch(imageSrc);
+      const blob = await response.blob();
+      const file = new File([blob], filename, { type: 'image/png' });
+      setUploadedFile(file);
+      setSelectedPresetId(null);
+      setIsWorkspaceOpen(true);
+    } catch (err) {
+      console.error('Failed to load demo image:', err);
+    }
+  };
 
   // Scroll handler for landing navigation links
   const handleNavClick = (sectionId: string) => {
@@ -80,13 +97,7 @@ export default function App() {
     }
   };
 
-  // Presets select handlers
-  const handlePresetSelect = (presetId: string) => {
-    setUploadedFile(null);
-    setSelectedPresetId(presetId);
-    setIsWorkspaceOpen(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+
 
   // Scroll to extreme top whenever workspace is opened, ensuring above-the-fold display
   useEffect(() => {
@@ -120,9 +131,7 @@ export default function App() {
       <Header 
         onNavClick={handleNavClick} 
         onOpenWorkshop={() => {
-          setSelectedPresetId('dog');
-          setIsWorkspaceOpen(true);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+          document.getElementById('file-upload-input')?.click();
         }}
       />
 
@@ -155,8 +164,7 @@ export default function App() {
                 <div className="mt-8 flex flex-col sm:flex-row justify-center items-center gap-4">
                   <button
                     onClick={() => {
-                      setSelectedPresetId('dog');
-                      setIsWorkspaceOpen(true);
+                      document.getElementById('file-upload-input')?.click();
                     }}
                     className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-7 py-4 text-sm font-bold text-white shadow-md hover:bg-blue-700 hover:shadow-lg focus:outline-none transition-all cursor-pointer"
                   >
@@ -237,70 +245,56 @@ export default function App() {
                   </p>
                 </div>
 
-                {/* Instant Presets/Free Samples Section */}
-                <div className="mt-8 text-center">
-                  <span className="text-2xs font-bold text-slate-400 tracking-wider uppercase block mb-4">
-                    Or select one of our free samples to test instantly
+                {/* Demo Presets selector for dynamic workflow experience */}
+                <div className="mt-8 flex flex-col items-center">
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3.5">
+                    No image handy? Try one of these:
                   </span>
-                  
-                  <div className="flex flex-wrap justify-center gap-3.5">
-                    {/* Dog preset banner button */}
+                  <div className="flex flex-col sm:flex-row gap-4 justify-center w-full max-w-2xl">
                     <button
-                      onClick={() => handlePresetSelect('dog')}
-                      className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-2 text-left hover:border-blue-400 hover:shadow-sm transition-all cursor-pointer group"
+                      onClick={() => handleTryDemoPreset(manOriginal, 'man_original.png')}
+                      className="flex-1 group flex items-center gap-3 bg-white hover:bg-blue-50/20 border border-slate-200 hover:border-blue-300 rounded-2xl p-2.5 pr-4 shadow-xs transition-all text-left cursor-pointer animate-fade-in"
                     >
-                      <img 
-                        src={dogOriginal}
-                        alt="Dog Preset" 
-                        referrerPolicy="no-referrer"
-                        className="h-10 w-10 rounded-lg object-cover bg-slate-50"
-                      />
-                      <div className="pr-2">
-                        <span className="block text-2xs font-extrabold text-slate-900 group-hover:text-blue-600 transition-colors">Australian Shepherd</span>
-                        <span className="block text-3xs font-mono text-slate-500">Animal preset</span>
+                      <div className="w-12 h-12 bg-slate-50 rounded-xl overflow-hidden border border-slate-100 flex-shrink-0 group-hover:scale-105 transition-transform">
+                        <img src={manOriginal} className="w-full h-full object-cover" alt="Example Portrait of a Man" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-800">Portrait of a Man</p>
+                        <p className="text-[10px] text-slate-500 font-medium">Fine hair & edge detail</p>
                       </div>
                     </button>
 
-                    {/* Sneaker preset banner button */}
                     <button
-                      onClick={() => handlePresetSelect('sneaker')}
-                      className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-2 text-left hover:border-blue-400 hover:shadow-sm transition-all cursor-pointer group"
+                      onClick={() => handleTryDemoPreset(cameraOriginal, 'camera_original.png')}
+                      className="flex-1 group flex items-center gap-3 bg-white hover:bg-blue-50/20 border border-slate-200 hover:border-blue-300 rounded-2xl p-2.5 pr-4 shadow-xs transition-all text-left cursor-pointer animate-fade-in"
                     >
-                      <img 
-                        src={sneakerOriginal}
-                        alt="Sneaker Preset" 
-                        referrerPolicy="no-referrer"
-                        className="h-10 w-10 rounded-lg object-cover bg-slate-50"
-                      />
-                      <div className="pr-2">
-                        <span className="block text-2xs font-extrabold text-slate-900 group-hover:text-blue-600 transition-colors">Vibrant Sneaker</span>
-                        <span className="block text-3xs font-mono text-slate-500">Product preset</span>
+                      <div className="w-12 h-12 bg-slate-50 rounded-xl overflow-hidden border border-slate-100 flex-shrink-0 group-hover:scale-105 transition-transform">
+                        <img src={cameraOriginal} className="w-full h-full object-cover" alt="Example Vintage Camera" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-800">Vintage Camera</p>
+                        <p className="text-[10px] text-slate-500 font-medium">Fine mechanical & lens detail</p>
                       </div>
                     </button>
 
-                    {/* Portrait preset banner button */}
                     <button
-                      onClick={() => handlePresetSelect('portrait')}
-                      className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-2 text-left hover:border-blue-400 hover:shadow-sm transition-all cursor-pointer group"
+                      onClick={() => handleTryDemoPreset(superheroOriginal, 'superhero_original.png')}
+                      className="flex-1 group flex items-center gap-3 bg-white hover:bg-blue-50/20 border border-slate-200 hover:border-blue-300 rounded-2xl p-2.5 pr-4 shadow-xs transition-all text-left cursor-pointer animate-fade-in"
                     >
-                      <img 
-                        src={portraitOriginal}
-                        alt="Portrait Preset" 
-                        referrerPolicy="no-referrer"
-                        className="h-10 w-10 rounded-lg object-cover bg-slate-50"
-                      />
-                      <div className="pr-2">
-                        <span className="block text-2xs font-extrabold text-slate-900 group-hover:text-blue-600 transition-colors">Studio Portrait</span>
-                        <span className="block text-3xs font-mono text-slate-500">Portrait preset</span>
+                      <div className="w-12 h-12 bg-slate-50 rounded-xl overflow-hidden border border-slate-100 flex-shrink-0 group-hover:scale-105 transition-transform">
+                        <img src={superheroOriginal} className="w-full h-full object-cover" alt="Example Epic Superhero" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-800">Epic Superhero</p>
+                        <p className="text-[10px] text-slate-500 font-medium">Dynamic custom styling</p>
                       </div>
                     </button>
                   </div>
                 </div>
-
               </div>
 
               {/* Before and After Interactive Comparison Slider */}
-              <div className="mt-16">
+              <div className="mt-16 px-6 sm:px-8">
                 <ComparisonSlider />
               </div>
 
@@ -330,8 +324,7 @@ export default function App() {
                     <div className="relative z-10 mt-8 flex justify-center">
                       <button
                         onClick={() => {
-                          setSelectedPresetId('dog');
-                          setIsWorkspaceOpen(true);
+                          document.getElementById('file-upload-input')?.click();
                         }}
                         className="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-bold text-slate-900 shadow-md hover:bg-slate-100 transition-all cursor-pointer"
                       >
@@ -378,7 +371,3 @@ export default function App() {
     </div>
   );
 }
-<div className="flex items-center gap-2">
-  <img src="/icon.png" className="w-5 h-5" />
-  <span>Aaroine</span>
-</div>

@@ -1,9 +1,14 @@
+import os from 'os';
+// Monkey-patch os.homedir and cache paths to write into /tmp to prevent "EACCES: permission denied, mkdir '/.cache'" on Cloud Run
+os.homedir = () => '/tmp';
+process.env.HOME = '/tmp';
+process.env.XDG_CACHE_HOME = '/tmp/.cache';
+
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import fs from 'fs';
-import os from 'os';
 import { removeBackground } from '@imgly/background-removal-node';
 import { PNG } from 'pngjs';
 
@@ -11,6 +16,65 @@ import { PNG } from 'pngjs';
 dotenv.config();
 
 const PORT = 3000;
+const tempAssetsDir = '/tmp/imgly-assets';
+let hasCopiedAssets = false;
+
+// Helper to copy directory recursively
+function copyDirSync(src: string, dest: string) {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath);
+    } else {
+      // Avoid copying map files or other unnecessary files to save space and time
+      if (entry.name.endsWith('.map') || entry.name.endsWith('.d.ts') || entry.name.endsWith('.ts')) {
+        continue;
+      }
+      if (!fs.existsSync(destPath)) {
+        try {
+          fs.copyFileSync(srcPath, destPath);
+        } catch (copyErr) {
+          // Ignore copy errors for single lock files, but log generally
+        }
+      }
+    }
+  }
+}
+
+try {
+  // Check common locations for the background removal model dist assets
+  const pathsToTry = [
+    path.join(process.cwd(), 'node_modules/@imgly/background-removal-node/dist'),
+    path.join(__dirname, '../node_modules/@imgly/background-removal-node/dist'),
+    path.join(__dirname, 'node_modules/@imgly/background-removal-node/dist'),
+    path.join(__dirname, '../../node_modules/@imgly/background-removal-node/dist')
+  ];
+  
+  let srcDir = '';
+  for (const p of pathsToTry) {
+    if (fs.existsSync(p)) {
+      srcDir = p;
+      break;
+    }
+  }
+
+  if (srcDir) {
+    console.log(`[STARTUP] Copying background removal model assets from ${srcDir} to ${tempAssetsDir}...`);
+    copyDirSync(srcDir, tempAssetsDir);
+    console.log(`[STARTUP] Local model assets successfully pre-cached in: ${tempAssetsDir}`);
+    hasCopiedAssets = true;
+  } else {
+    console.warn(`[STARTUP] Warning: Could not locate @imgly/background-removal-node assets directory.`);
+  }
+} catch (err: any) {
+  console.error('[STARTUP] Error creating model asset cache directory:', err.message || err);
+}
 
 async function startServer() {
   const app = express();
@@ -65,10 +129,11 @@ async function startServer() {
       // Convert binary buffer to Web Blob to route decoded data safely
       const imageBlob = new Blob([buffer], { type: mimeType });
 
-      // Setup a 15-second timeout as requested by the user
-      const timeoutMs = 15000;
+      // Setup a 60-second timeout to prevent failures in cloud containers and accommodate first-time model downloads
+      const timeoutMs = 60000;
       const removeTask = removeBackground(imageBlob, {
-        model: 'medium',
+        model: 'small',
+        publicPath: hasCopiedAssets ? `file://${tempAssetsDir}/` : undefined,
         output: {
           format: 'image/png',
           quality: 1.0
@@ -163,7 +228,7 @@ async function startServer() {
       if (error.message === 'REMBG_TIMEOUT') {
         return res.status(504).json({
           error: 'REMBG_TIMEOUT',
-          message: 'Local background removal operation timed out (15-second timeout reached).'
+          message: 'Local background removal operation timed out (60-second timeout reached).'
         });
       }
 

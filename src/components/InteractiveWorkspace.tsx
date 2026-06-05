@@ -8,13 +8,6 @@ import {
 } from 'lucide-react';
 import { WorkspaceState, ImagePreset } from '../types';
 
-import dogOriginal from '../assets/images/dog_original_1779871601966.png';
-import sneakerOriginal from '../assets/images/sneaker_original_1779871633341.png';
-import portraitOriginal from '../assets/images/portrait_original_1779871700379.png';
-import dogRemoved from '../assets/images/dog_removed_1779871601966.png';
-import sneakerRemoved from '../assets/images/sneaker_removed_1779871633341.png';
-import portraitRemoved from '../assets/images/portrait_removed_1779871700379.png';
-
 interface InteractiveWorkspaceProps {
   uploadedFile: File | null;
   selectedPresetId: string | null;
@@ -35,33 +28,7 @@ export default function InteractiveWorkspace({
   onExtractionFailure
 }: InteractiveWorkspaceProps) {
   
-  // Create preset entries
-  const presets: ImagePreset[] = [
-    {
-      id: 'dog',
-      name: 'Australian Shepherd',
-      url: dogOriginal,
-      removedUrl: dogRemoved,
-      description: 'Complex fluffy fur details against a forest backdrop',
-      category: 'Animal'
-    },
-    {
-      id: 'sneaker',
-      name: 'Vibrant Sneaker',
-      url: sneakerOriginal,
-      removedUrl: sneakerRemoved,
-      description: 'Sleek product leather outline against a light backdrop',
-      category: 'Product'
-    },
-    {
-      id: 'portrait',
-      name: 'Studio Portrait',
-      url: portraitOriginal,
-      removedUrl: portraitRemoved,
-      description: 'Corporate studio headshot with clear lighting edges',
-      category: 'Portrait'
-    }
-  ];
+  const presets = [] as any[];
 
   const [state, setState] = useState<WorkspaceState>({
     tool: 'brush-erase',
@@ -91,6 +58,8 @@ export default function InteractiveWorkspace({
   const [apiReturnedPng, setApiReturnedPng] = useState<string>('');
   const [activeCanvasView, setActiveCanvasView] = useState<'editor' | 'comparison'>('comparison');
   const [showSuccessCheck, setShowSuccessCheck] = useState(false);
+  const [hasManualEdit, setHasManualEdit] = useState(false);
+  const [brushCursor, setBrushCursor] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
 
   // Pipeline status checkpoints
   const [pipelineStatuses, setPipelineStatuses] = useState<{
@@ -284,11 +253,16 @@ export default function InteractiveWorkspace({
   // Load Image URL based on file or preset
   useEffect(() => {
     setApiReturnedPng('');
+    setCutoutDataUrl('');
+    setHasManualEdit(false);
     if (uploadedFile) {
-      console.log('Image selected');
+      console.log('Image selected from upload');
       const url = URL.createObjectURL(uploadedFile);
       setImageUrl(url);
       setActivePreset(null);
+      setState(prev => ({ ...prev, isProcessing: true }));
+      setShowLaser(true);
+      setScanProgress(0);
       
       // Initialize/reset real-time pipeline execution logs
       setPipelineLogs({
@@ -304,20 +278,12 @@ export default function InteractiveWorkspace({
 
       // We don't triggerAutoExtraction here; handleImageLoad will fire and run our real API background removal
       return () => URL.revokeObjectURL(url);
-    } else if (selectedPresetId) {
-      console.log('Image selected');
-      const preset = presets.find(p => p.id === selectedPresetId) || presets[0];
-      setImageUrl(preset.url);
-      setActivePreset(preset);
-      triggerAutoExtraction();
     } else {
-      console.log('Image selected');
-      // Fallback to first preset
-      setImageUrl(presets[0].url);
-      setActivePreset(presets[0]);
-      triggerAutoExtraction();
+      console.log('Image selected - no uploaded file available');
+      setImageUrl('');
+      setActivePreset(null);
     }
-  }, [uploadedFile, selectedPresetId]);
+  }, [uploadedFile]);
 
   // Laser effect animation during "Processing"
   const triggerAutoExtraction = () => {
@@ -462,8 +428,8 @@ export default function InteractiveWorkspace({
       setScanProgress(p => (p >= 85 ? 85 : p + 5));
     }, 150);
 
-    // Timeout of 15 seconds as requested to prevent indefinite loading/hanger states and report failures quickly
-    const timeoutThresholdMs = 15000;
+    // Timeout of 60 seconds to prevent indefinite loading/hanger states and report failures quickly while allowing first-time download
+    const timeoutThresholdMs = 60000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
@@ -726,7 +692,7 @@ export default function InteractiveWorkspace({
 
       if (err.name === 'AbortError') {
         finalErrorType = 'TIMEOUT_ERROR';
-        finalErrorMessage = 'API Request Timed Out: The background removal engine did not respond within the 15-second time limit.';
+        finalErrorMessage = 'API Request Timed Out: The background removal engine did not respond within the 60-second time limit.';
       }
 
       console.error('API background extraction failed.');
@@ -799,7 +765,7 @@ export default function InteractiveWorkspace({
       await new Promise<void>((resolve, reject) => {
         testImg.onload = () => resolve();
         testImg.onerror = () => reject(new Error('Failed to load local image resource.'));
-        testImg.src = dogOriginal;
+        testImg.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
       });
       
       appendLog(`Source loaded successfully! Dimensions: ${testImg.width}x${testImg.height}`);
@@ -1000,98 +966,27 @@ export default function InteractiveWorkspace({
   ) => {
     if (width <= 0 || height <= 0) return;
 
-    // Check if we are loading a preset with preloaded cutout
-    if (activePreset && activePreset.removedUrl) {
-      console.log('Loading preloaded cutout path for preset:', activePreset.id);
-      
-      // Update statuses to response received
-      setPipelineStatuses({
-        uploadStarted: 'completed',
-        requestSent: 'completed',
-        responseReceived: 'completed',
-        processingCompleted: 'active'
-      });
+    // Direct, unconditional live AI background removal flow
+    // Create a temporary canvas to get the base64 URL of the image
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d');
+    if (!tempCtx) return;
 
-      const cutoutImg = new Image();
-      cutoutImg.crossOrigin = 'anonymous';
-      
-      cutoutImg.onload = () => {
-        try {
-          console.log('--- PRESET LOADSUCCESS: cutoutImg.onload fired successfully ---');
-          const pWidth = cutoutImg.naturalWidth || width;
-          const pHeight = cutoutImg.naturalHeight || height;
+    tempCtx.drawImage(img, 0, 0, width, height);
+    const base64Url = tempCanvas.toDataURL('image/png');
 
-          // Draw cutout onto offscreen canvas to cache alpha channel
-          const offscreen = document.createElement('canvas');
-          offscreen.width = pWidth;
-          offscreen.height = pHeight;
-          const offCtx = offscreen.getContext('2d');
-          if (offCtx) {
-            offCtx.drawImage(cutoutImg, 0, 0, pWidth, pHeight);
-            const cutoutData = offCtx.getImageData(0, 0, pWidth, pHeight);
-            const cutoutPixels = cutoutData.data;
-
-            const alphas = new Uint8Array(pWidth * pHeight);
-            for (let i = 0; i < cutoutPixels.length; i += 4) {
-              alphas[i / 4] = cutoutPixels[i + 3];
-            }
-            rawAiCutoutAlphasRef.current = alphas;
-
-            // Set the Preset result URL as returnedPng
-            setApiReturnedPng(activePreset.removedUrl!);
-            onExtractionSuccess?.(activePreset.removedUrl!, true);
-
-            reApplyAiThreshold(pWidth, pHeight);
-          }
-
-          setPipelineStatuses(prev => ({
-            ...prev,
-            processingCompleted: 'completed'
-          }));
-          
-          setState(prev => ({ ...prev, isProcessing: false }));
-          setShowLaser(false);
-          setShowSuccessCheck(true);
-          setTimeout(() => setShowSuccessCheck(false), 3500);
-
-        } catch (err: any) {
-          console.error('Error in preset cutout load:', err);
-          runLiveAi();
-        }
-      };
-
-      cutoutImg.onerror = () => {
-        console.warn('Preset cutout load failed, falling back to live AI removal...');
-        runLiveAi();
-      };
-
-      cutoutImg.src = activePreset.removedUrl;
-      return;
-    }
-
-    // Default flow: run live AI
-    runLiveAi();
-
-    function runLiveAi() {
-      // Create a temporary canvas to get the base64 URL of the image
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = width;
-      tempCanvas.height = height;
-      const tempCtx = tempCanvas.getContext('2d');
-      if (!tempCtx) return;
-
-      tempCtx.drawImage(img, 0, 0, width, height);
-      const base64Url = tempCanvas.toDataURL('image/png');
-
-      rawAiCutoutAlphasRef.current = null; // Clear cached alphas
-      const name = activePreset ? `${activePreset.id}.png` : (uploadedFile?.name || 'uploaded_image.png');
-      const mime = activePreset ? 'image/png' : (uploadedFile?.type || 'image/png');
-      runAiSegmentation(base64Url, name, mime, maskCtx, width, height);
-    }
+    rawAiCutoutAlphasRef.current = null; // Clear cached alphas
+    const name = uploadedFile?.name || 'uploaded_image.png';
+    const mime = uploadedFile?.type || 'image/png';
+    
+    // Trigger live AI removal service
+    runAiSegmentation(base64Url, name, mime, maskCtx, width, height);
   };
 
   // Re-render display canvas
-  const drawDisplay = (forcedWidth?: number, forcedHeight?: number) => {
+  const drawDisplay = (forcedWidth?: number, forcedHeight?: number, skipDataUrlUpdate: boolean = false) => {
     const displayCanvas = displayCanvasRef.current;
     const maskCanvas = maskCanvasRef.current;
     const img = imageRef.current;
@@ -1185,13 +1080,14 @@ export default function InteractiveWorkspace({
 
     // Save cutout data URL for real-time comparison slider
     try {
-      if (rawAiCutoutAlphasRef.current !== null) {
+      if (rawAiCutoutAlphasRef.current !== null && !skipDataUrlUpdate) {
         console.log('[TRACE drawDisplay] Transferring displayCanvas content to setCutoutDataUrl Base64 state...');
         const dataUrl = displayCanvas.toDataURL('image/png');
+        console.log('[TRACE drawDisplay] Generated toDataURL, length:', dataUrl ? dataUrl.length : 0);
         setCutoutDataUrl(dataUrl);
         console.log('[TRACE drawDisplay] dataUrl update successful.');
       } else {
-        console.log('[TRACE drawDisplay] rawAiCutoutAlphasRef is null, skipping setCutoutDataUrl to prevent original duplication.');
+        console.log('[TRACE drawDisplay] skipDataUrlUpdate enabled or rawAiCutoutAlphasRef is null, keeping rendering extremely fast.');
       }
     } catch (e: any) {
       console.warn('Could not generate comparison data URL:', e);
@@ -1293,7 +1189,7 @@ export default function InteractiveWorkspace({
     const currentCoords = getMouseCoordsOnCanvas(clientX, clientY);
 
     ctx.beginPath();
-    ctx.lineWidth = state.brushSize / state.zoom;
+    ctx.lineWidth = state.brushSize;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
@@ -1312,11 +1208,16 @@ export default function InteractiveWorkspace({
     ctx.stroke();
 
     lastPosRef.current = currentCoords;
-    drawDisplay();
+    drawDisplay(undefined, undefined, true);
   };
 
   const handleDrawEnd = () => {
-    isDrawingRef.current = false;
+    if (isDrawingRef.current) {
+      isDrawingRef.current = false;
+      setHasManualEdit(true);
+      console.log('[DEBUG] Manual brush stroke completed. hasManualEdit is set to true.');
+      drawDisplay();
+    }
   };
 
   // Zoom manipulation
@@ -1356,7 +1257,9 @@ export default function InteractiveWorkspace({
     const link = document.createElement('a');
 
     // Use current state of displayCanvas as the master source for the subject cutout
-    const targetUrl = cutoutDataUrl || displayCanvas.toDataURL('image/png') || apiReturnedPng;
+    const targetUrl = hasManualEdit || state.threshold > 0 || state.feather > 0
+      ? (cutoutDataUrl || displayCanvas.toDataURL('image/png') || apiReturnedPng)
+      : (apiReturnedPng || cutoutDataUrl || displayCanvas.toDataURL('image/png'));
 
     if (state.backdrop === 'grid' || state.backdrop === 'grid-dark') {
       // Pristine background-removed transparent PNG cutout
@@ -1514,10 +1417,10 @@ export default function InteractiveWorkspace({
             
             <div>
               <h1 className="text-xl font-bold tracking-tight text-slate-900">
-                {activePreset ? activePreset.name : 'Uploaded File'}
+                {uploadedFile?.name || 'Uploaded File'}
               </h1>
               <p className="text-xs text-slate-500 font-mono">
-                {imageSize.width} × {imageSize.height} px • {activePreset ? activePreset.category : 'Custom File'}
+                {imageSize.width} × {imageSize.height} px • Custom File
               </p>
             </div>
           </div>
@@ -1641,7 +1544,8 @@ export default function InteractiveWorkspace({
                 className="relative select-none overflow-hidden rounded-2xl border border-slate-200 bg-checkerboard shadow-xl mx-auto transition-transform duration-200"
                 style={{
                   width: `${imageSize.width > 600 ? 600 : imageSize.width || 500}px`,
-                  aspectRatio: `${imageSize.width || 4} / ${imageSize.height || 3}`,
+                  aspectRatio: imageSize.width && imageSize.height ? `${imageSize.width} / ${imageSize.height}` : '4/3',
+                  minHeight: '200px',
                   maxWidth: '100%',
                   transform: `scale(${state.zoom})`,
                   transformOrigin: 'center center',
@@ -1663,20 +1567,66 @@ export default function InteractiveWorkspace({
                 />
 
                 {/* Right / Behind aspect: Cutout subject */}
-                {cutoutDataUrl || apiReturnedPng ? (
-                  <img 
-                    id="img-comparison-cutout"
-                    src={cutoutDataUrl || apiReturnedPng}
-                    alt="Background Removed Output"
-                    referrerPolicy="no-referrer"
-                    className="absolute inset-0 h-full w-full object-contain pointer-events-none drop-shadow-md"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-400 bg-slate-100/40">
-                    <Activity className="h-5 w-5 animate-pulse text-indigo-500" />
-                    <span className="text-xs font-mono">Analyzing background boundaries...</span>
-                  </div>
-                )}
+                {(() => {
+                  const activeCutoutSrc = hasManualEdit || state.threshold > 0 || state.feather > 0 
+                    ? (cutoutDataUrl || apiReturnedPng) 
+                    : (apiReturnedPng || cutoutDataUrl);
+
+                  console.log('[DEBUG-JSX] rendering #img-comparison-cutout:', {
+                    srcLength: activeCutoutSrc ? activeCutoutSrc.length : 0,
+                    srcOk: !!activeCutoutSrc && activeCutoutSrc.length > 50,
+                    hasManualEdit,
+                    threshold: state.threshold,
+                    feather: state.feather,
+                    cutoutDataUrlLength: cutoutDataUrl ? cutoutDataUrl.length : 0,
+                    apiReturnedPngLength: apiReturnedPng ? apiReturnedPng.length : 0,
+                    containerSize: `${imageSize.width}x${imageSize.height}`
+                  });
+
+                  if (activeCutoutSrc) {
+                    return (
+                      <img 
+                        id="img-comparison-cutout"
+                        key={activeCutoutSrc.slice(-60) || 'cutout'}
+                        src={activeCutoutSrc}
+                        alt="Background Removed Output"
+                        referrerPolicy="no-referrer"
+                        onLoad={(e) => {
+                          const img = e.currentTarget;
+                          console.log('[DEBUG-IMG-EVENTS] #img-comparison-cutout LOAD SUCCESS:', {
+                            srcLength: activeCutoutSrc.length,
+                            naturalSize: `${img.naturalWidth}x${img.naturalHeight}`,
+                            visibleSize: `${img.clientWidth}x${img.clientHeight}`,
+                            hidden: img.style.display === 'none'
+                          });
+                        }}
+                        onError={(e) => {
+                          console.error('[DEBUG-IMG-EVENTS] #img-comparison-cutout LOAD ERROR:', {
+                            srcLength: activeCutoutSrc.length,
+                            srcPreview: activeCutoutSrc.substring(0, 50) + '...'
+                          });
+                        }}
+                        className="absolute inset-0 h-full w-full object-contain pointer-events-none drop-shadow-md"
+                        style={{ display: 'block', opacity: 1 }}
+                      />
+                    );
+                  }
+                  if (apiError) {
+                    return (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-rose-500 bg-rose-50/20 p-4 text-center">
+                        <AlertCircle className="h-6 w-6 text-rose-600 animate-bounce" />
+                        <span className="text-xs font-bold font-sans">Background Removal Failed</span>
+                        <span className="text-[10px] text-rose-700/85 max-w-xs">{apiError.message.split('\n')[0]}</span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-400 bg-slate-100/40">
+                      <Activity className="h-5 w-5 animate-pulse text-indigo-500" />
+                      <span className="text-xs font-mono">Analyzing background boundaries...</span>
+                    </div>
+                  );
+                })()}
 
                 <span className="absolute top-4 right-4 z-10 rounded-lg bg-emerald-600 text-white px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-wider shadow-sm select-none">
                   Isolated Subject
@@ -1690,10 +1640,25 @@ export default function InteractiveWorkspace({
                   {imageUrl ? (
                     <img 
                       id="img-comparison-original"
+                      key={imageUrl.slice(-60) || 'original'}
                       src={imageUrl}
                       alt="Original Source"
                       referrerPolicy="no-referrer"
+                      onLoad={(e) => {
+                        const img = e.currentTarget;
+                        console.log('[DEBUG-IMG-EVENTS] #img-comparison-original LOAD SUCCESS:', {
+                          srcLength: imageUrl.length,
+                          naturalSize: `${img.naturalWidth}x${img.naturalHeight}`,
+                          visibleSize: `${img.clientWidth}x${img.clientHeight}`
+                        });
+                      }}
+                      onError={(e) => {
+                        console.error('[DEBUG-IMG-EVENTS] #img-comparison-original LOAD ERROR:', {
+                          srcLength: imageUrl.length
+                        });
+                      }}
                       className="absolute inset-0 h-full w-full object-contain pointer-events-none"
+                      style={{ display: 'block', opacity: 1 }}
                     />
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400 font-sans">
@@ -1745,19 +1710,90 @@ export default function InteractiveWorkspace({
               cursor: state.tool === 'brush-erase' || state.tool === 'brush-restore' ? 'none' : 'default'
             }}
           >
-            {/* Dynamic Composite Canvas */}
-            <canvas
-              ref={displayCanvasRef}
-              onMouseDown={(e) => handleDrawStart(e.clientX, e.clientY)}
-              onMouseMove={(e) => handleDrawingStroke(e.clientX, e.clientY)}
-              onMouseUp={handleDrawEnd}
-              onMouseLeave={handleDrawEnd}
-              onTouchStart={(e) => handleDrawStart(e.touches[0].clientX, e.touches[0].clientY)}
-              onTouchMove={(e) => handleDrawingStroke(e.touches[0].clientX, e.touches[0].clientY)}
-              onTouchEnd={handleDrawEnd}
-              className="block max-h-[500px] max-w-full object-contain"
-              style={{ width: `${imageSize.width > 600 ? 600 : imageSize.width}px` }}
-            />
+            {/* Unified Wrapper for Canvas and Cursor Preview sharing identical dimensions for exact 1:1 absolute positioning */}
+            <div className="relative inline-block max-w-full overflow-hidden select-none">
+              {/* Dynamic Composite Canvas */}
+              <canvas
+                ref={displayCanvasRef}
+                onMouseDown={(e) => handleDrawStart(e.clientX, e.clientY)}
+                onMouseMove={(e) => {
+                  const rect = displayCanvasRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    const normX = (e.clientX - rect.left) / rect.width;
+                    const normY = (e.clientY - rect.top) / rect.height;
+                    const unscaledWidth = displayCanvasRef.current?.clientWidth || 0;
+                    const unscaledHeight = displayCanvasRef.current?.clientHeight || 0;
+                    setBrushCursor({
+                      x: normX * unscaledWidth,
+                      y: normY * unscaledHeight,
+                      visible: true
+                    });
+                  }
+                  handleDrawingStroke(e.clientX, e.clientY);
+                }}
+                onMouseUp={() => {
+                  handleDrawEnd();
+                }}
+                onMouseLeave={() => {
+                  handleDrawEnd();
+                  setBrushCursor(p => ({ ...p, visible: false }));
+                }}
+                onMouseEnter={(e) => {
+                  const rect = displayCanvasRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    const normX = (e.clientX - rect.left) / rect.width;
+                    const normY = (e.clientY - rect.top) / rect.height;
+                    const unscaledWidth = displayCanvasRef.current?.clientWidth || 0;
+                    const unscaledHeight = displayCanvasRef.current?.clientHeight || 0;
+                    setBrushCursor({
+                      x: normX * unscaledWidth,
+                      y: normY * unscaledHeight,
+                      visible: true
+                    });
+                  }
+                }}
+                onTouchStart={(e) => {
+                  handleDrawStart(e.touches[0].clientX, e.touches[0].clientY);
+                }}
+                onTouchMove={(e) => {
+                  const rect = displayCanvasRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    const normX = (e.touches[0].clientX - rect.left) / rect.width;
+                    const normY = (e.touches[0].clientY - rect.top) / rect.height;
+                    const unscaledWidth = displayCanvasRef.current?.clientWidth || 0;
+                    const unscaledHeight = displayCanvasRef.current?.clientHeight || 0;
+                    setBrushCursor({
+                      x: normX * unscaledWidth,
+                      y: normY * unscaledHeight,
+                      visible: true
+                    });
+                  }
+                  handleDrawingStroke(e.touches[0].clientX, e.touches[0].clientY);
+                }}
+                onTouchEnd={() => {
+                  handleDrawEnd();
+                  setBrushCursor(p => ({ ...p, visible: false }));
+                }}
+                className="block max-h-[500px] max-w-full object-contain"
+                style={{ width: `${imageSize.width > 600 ? 600 : imageSize.width}px` }}
+              />
+
+              {/* Dynamic Live Brush Circle Indicator */}
+              {brushCursor.visible && (state.tool === 'brush-erase' || state.tool === 'brush-restore') && (
+                <div 
+                  className="pointer-events-none absolute rounded-full border-2 bg-white/10 shadow-lg select-none"
+                  style={{
+                    width: `${state.brushSize * (displayCanvasRef.current ? (displayCanvasRef.current.clientWidth / imageSize.width) : 1)}px`,
+                    height: `${state.brushSize * (displayCanvasRef.current ? (displayCanvasRef.current.clientWidth / imageSize.width) : 1)}px`,
+                    left: `${brushCursor.x}px`,
+                    top: `${brushCursor.y}px`,
+                    transform: 'translate(-50%, -50%)',
+                    borderColor: state.tool === 'brush-erase' ? '#ef4444' : '#10b981', // high-contrast Red or Emerald Green
+                    boxShadow: '0 0 0 1px rgba(255, 255, 255, 0.8), inset 0 0 0 1px rgba(255, 255, 255, 0.8)' // white outer & inner contrast layer for perfect dark/light backdrop visibility
+                  }}
+                />
+              )}
+            </div>
 
             {/* Offscreen Alpha Mask Canvas (Invisible) */}
             <canvas
@@ -1782,19 +1818,6 @@ export default function InteractiveWorkspace({
               <div className="absolute inset-0 bg-blue-500/10 pointer-events-none animate-pulse" />
             )}
           </div>
-
-          {/* Simulated Live Brush Circle Overlay */}
-          {isDrawingRef.current && (state.tool === 'brush-erase' || state.tool === 'brush-restore') && activeCanvasView === 'editor' && (
-            <div 
-              className="absolute pointer-events-none rounded-full border border-slate-900 bg-white/20 shadow-sm animate-pulse-fast"
-              style={{
-                width: `${state.brushSize}px`,
-                height: `${state.brushSize}px`,
-                left: `${lastPosRef.current.x * (displayCanvasRef.current?.getBoundingClientRect().width || 1) / imageSize.width + (displayCanvasRef.current?.getBoundingClientRect().left || 0) - (containerRef.current?.getBoundingClientRect().left || 0) - state.brushSize/2}px`,
-                top: `${lastPosRef.current.y * (displayCanvasRef.current?.getBoundingClientRect().height || 1) / imageSize.height + (displayCanvasRef.current?.getBoundingClientRect().top || 0) - (containerRef.current?.getBoundingClientRect().top || 0) - state.brushSize/2}px`,
-              }}
-            />
-          )}
         </div>
 
         {/* Quick Stats Summary Footer */}
