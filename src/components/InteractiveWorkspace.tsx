@@ -462,9 +462,25 @@ export default function InteractiveWorkspace({
       console.log(`[CLIENT TIMING] API response received at: ${new Date(apiResponseTime).toLocaleTimeString()} (${apiResponseTime} ms)`);
       console.log(`[CLIENT TIMING] API response duration: ${apiDuration} ms`);
 
-      const data = await response.json();
+      const responseStatus = response.status;
+      console.log('Response Status:', responseStatus);
+      
+      const responseText = await response.clone().text();
+      console.log('Response Text Payload:', responseText);
 
-      if (!response.ok || data.error) {
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError: any) {
+        console.error('Failed to parse response JSON:', parseError);
+        throw {
+          error: 'BAD_JSON_RESPONSE',
+          message: `Received status ${responseStatus} with invalid JSON. Raw response: ${responseText.substring(0, 500)}`,
+          details: parseError.stack
+        };
+      }
+
+      if (!response.ok || data?.error) {
         throw {
           error: data?.error || 'BACKEND_ERROR',
           message: data?.message || 'Failed to communicate with back-end background removal service.',
@@ -803,7 +819,21 @@ export default function InteractiveWorkspace({
       const reqDuration = ((reqEnd - reqStart) / 1000).toFixed(1);
       appendLog(`✅ 3. Does the backend receive the uploaded image? YES (Responded in ${reqDuration}s)`);
       
-      const data = await response.json();
+      const responseStatus = response.status;
+      const responseText = await response.clone().text();
+      console.log('Diagnostic Response Status:', responseStatus);
+      console.log('Diagnostic Response Text Payload:', responseText);
+
+      let data: any;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError: any) {
+        appendLog(`❌ Diagnostic HTML/Text response parsing failed. Status: ${responseStatus}`);
+        console.error('Diagnostic Response JSON parsing failed:', parseError);
+        throw new Error(
+          `FAIL ❌: Backend response could not be parsed as JSON. Status: ${responseStatus}. Raw body: ${responseText.substring(0, 500)}`
+        );
+      }
       
       if (data && Array.isArray(data.logs)) {
         appendLog('--- SERVER CORE EXECUTION RESOLVED ---');
