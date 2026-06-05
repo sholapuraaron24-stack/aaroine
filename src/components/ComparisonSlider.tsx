@@ -130,7 +130,6 @@ export default function ComparisonSlider() {
           <img 
             src={dogRemoved} 
             alt="Dog Background-Removed Cutout"
-            referrerPolicy="no-referrer"
             className="cutout-image w-full h-full object-cover relative"
             style={{ zIndex: 1 }}
             onLoad={() => console.log('Cutout loaded successfully:', dogRemoved)}
@@ -153,7 +152,6 @@ export default function ComparisonSlider() {
             <img 
               src={dogOriginal} 
               alt="Dog Original Image"
-              referrerPolicy="no-referrer"
               className="w-full h-full object-cover"
               style={{ width: '100%', height: '100%' }}
             />
