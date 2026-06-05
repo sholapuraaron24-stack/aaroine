@@ -999,19 +999,36 @@ export default function InteractiveWorkspace({
     // Direct, unconditional live AI background removal flow
     // Create a temporary canvas to get the base64 URL of the image
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = width;
-    tempCanvas.height = height;
+    
+    // We downscale the base64 URL sent to `/api/remove-background` to save network and server memory.
+    const MAX_DIMENSION = 960; // perfect sweet spot for pro quality & <= 250MB active memory
+    let targetWidth = width;
+    let targetHeight = height;
+
+    if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+      if (width > height) {
+        targetWidth = MAX_DIMENSION;
+        targetHeight = Math.round((height * MAX_DIMENSION) / width);
+      } else {
+        targetHeight = MAX_DIMENSION;
+        targetWidth = Math.round((width * MAX_DIMENSION) / height);
+      }
+      console.log(`[CLIENT RESIZE] Original dimension is ${width}x${height}. Downscaling upload payload to ${targetWidth}x${targetHeight} for optimal ONNX model execution within 512MB RAM constraints.`);
+    }
+
+    tempCanvas.width = targetWidth;
+    tempCanvas.height = targetHeight;
     const tempCtx = tempCanvas.getContext('2d');
     if (!tempCtx) return;
 
-    tempCtx.drawImage(img, 0, 0, width, height);
+    tempCtx.drawImage(img, 0, 0, targetWidth, targetHeight);
     const base64Url = tempCanvas.toDataURL('image/png');
 
     rawAiCutoutAlphasRef.current = null; // Clear cached alphas
     const name = uploadedFile?.name || 'uploaded_image.png';
     const mime = uploadedFile?.type || 'image/png';
     
-    // Trigger live AI removal service
+    // Trigger live AI removal service, keep width & height parameters to original dimensions for high-resolution upscaling logic
     runAiSegmentation(base64Url, name, mime, maskCtx, width, height);
   };
 

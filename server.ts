@@ -92,8 +92,23 @@ async function startServer() {
     });
   });
 
+  // Helper function to log memory profile at checkpoints
+  const logMemoryProfile = (checkpointLabel: string) => {
+    const mem = process.memoryUsage();
+    const toMB = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    console.log(`[MEMORY PROFILE - ${checkpointLabel}] RSS: ${toMB(mem.rss)} | HeapUsed: ${toMB(mem.heapUsed)} | External: ${toMB(mem.external)}`);
+  };
+
   // API Route to handle professional background removal using the local open-source rembg model
   app.post('/api/remove-background', async (req, res) => {
+    logMemoryProfile('START-POST-REQUEST');
+    let base64Content: string | null = null;
+    let buffer: Buffer | null = null;
+    let imageBlob: Blob | null = null;
+    let blob: any = null;
+    let imageBuffer: ArrayBuffer | null = null;
+    let outputBuffer: Buffer | null = null;
+
     try {
       console.log('Server received request to /api/remove-background');
       console.log('[SERVER DEBUGLOG] req.body has keys:', req.body ? Object.keys(req.body) : 'none');
@@ -114,10 +129,12 @@ async function startServer() {
       }
 
       // Convert base64 to binary buffer
-      const base64Content = image_b64.replace(/^data:image\/\w+;base64,/, '');
-      const buffer = Buffer.from(base64Content, 'base64');
+      base64Content = image_b64.replace(/^data:image\/\w+;base64,/, '');
+      buffer = Buffer.from(base64Content, 'base64');
+      const originalLength = buffer.length;
 
-      console.log(`Payload status: Received ${buffer.length} bytes of image data, format indicated: ${mimeType}`);
+      console.log(`Payload status: Received ${originalLength} bytes of image data, format indicated: ${mimeType}`);
+      logMemoryProfile('PAYLOAD-PARSED-TO-BUFFER');
 
       const serverLogs: string[] = [];
       const logAndPush = (msg: string) => {
@@ -136,7 +153,13 @@ async function startServer() {
       logAndPush('Initializing @imgly/background-removal-node engine');
 
       // Convert binary buffer to Web Blob to route decoded data safely
-      const imageBlob = new Blob([buffer], { type: mimeType });
+      imageBlob = new Blob([buffer], { type: mimeType });
+      
+      // Nullify raw base64 content immediately to release massive string references
+      base64Content = null;
+      if (req.body) {
+        req.body.image_b64 = ''; // release body reference
+      }
 
       // Setup a 60-second timeout to prevent failures in cloud containers and accommodate first-time model downloads
       const timeoutMs = 60000;
@@ -166,9 +189,11 @@ async function startServer() {
             if (current === 0 && !inferenceStarted) {
               inferenceStarted = true;
               logAndPush('Inference started');
+              logMemoryProfile('INFERENCE-STARTED');
             } else if (current === 1 && !inferenceCompleted) {
               inferenceCompleted = true;
               logAndPush('Inference completed');
+              logMemoryProfile('INFERENCE-FINISHED');
             }
           }
         }
@@ -178,8 +203,13 @@ async function startServer() {
         setTimeout(() => reject(new Error('REMBG_TIMEOUT')), timeoutMs);
       });
 
-      const blob = await Promise.race([removeTask, timeoutPromise]);
+      blob = await Promise.race([removeTask, timeoutPromise]);
+      logMemoryProfile('INFERENCE-PROMISE-RESOLVED');
       
+      // Release input blob and original buffer instantly
+      imageBlob = null;
+      buffer = null;
+
       // Fallback safeties to guarantee logs are outputted:
       if (!downloadCompleted) {
         logAndPush('Model download completed');
@@ -192,11 +222,14 @@ async function startServer() {
       }
 
       // Convert the returned Blob back to a base64-encoded transparent PNG
-      const imageBuffer = await blob.arrayBuffer();
-      const outputBuffer = Buffer.from(imageBuffer);
+      imageBuffer = await blob.arrayBuffer();
+      outputBuffer = Buffer.from(imageBuffer);
+      const processedLength = outputBuffer.length;
+
+      // release raw inference blob
+      blob = null;
 
       logAndPush('Verifying backend output integrity and decoding PNG structure');
-      const finalBuffer = outputBuffer;
       let width = 0;
       let height = 0;
       try {
@@ -209,19 +242,32 @@ async function startServer() {
         console.error('PNG error during validation:', pngErr);
       }
 
-      const base64Png = finalBuffer.toString('base64');
+      const base64Png = outputBuffer.toString('base64');
       const pngDataUrl = `data:image/png;base64,${base64Png}`;
+
+      // Release output buffer immediately after base64 conversion
+      outputBuffer = null;
+      imageBuffer = null;
 
       logAndPush('rembg completed successfully');
       logAndPush('PNG returned to client');
+      logMemoryProfile('PRE-RESPONSE-SEND');
+
+      // Schedule proactive garbage collection if supported
+      if (global && typeof (global as any).gc === 'function') {
+        try {
+          (global as any).gc();
+          console.log('[MEMORY ENGINE] Successfully executed proactive Node manual garbage collection.');
+        } catch (_) {}
+      }
 
       return res.json({
         success: true,
         image_b64: pngDataUrl,
         mimeType: 'image/png',
         fileExtension: '.png',
-        originalSize: buffer.length,
-        processedSize: finalBuffer.length,
+        originalSize: originalLength,
+        processedSize: processedLength,
         width,
         height,
         logs: serverLogs
@@ -234,16 +280,27 @@ async function startServer() {
       console.error('Error Stack:', error.stack);
       console.error('=================================================================================\n');
 
-      if (error.message === 'REMBG_TIMEOUT') {
-        return res.status(504).json({
-          error: 'REMBG_TIMEOUT',
-          message: 'Local background removal operation timed out (60-second timeout reached).'
-        });
+      // Clean up buffers in case of errors
+      base64Content = null;
+      buffer = null;
+      imageBlob = null;
+      blob = null;
+      imageBuffer = null;
+      outputBuffer = null;
+
+      if (global && typeof (global as any).gc === 'function') {
+        try { (global as any).gc(); } catch (_) {}
       }
 
-      return res.status(500).json({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: error.message || 'An unexpected failure occurred while executing local background removal.',
+      const status = error.message === 'REMBG_TIMEOUT' ? 504 : 500;
+      const errorLabel = error.message === 'REMBG_TIMEOUT' ? 'REMBG_TIMEOUT' : 'INTERNAL_SERVER_ERROR';
+      const userMessage = error.message === 'REMBG_TIMEOUT' 
+        ? 'Local background removal operation timed out (60-second timeout reached).'
+        : (error.message || 'An unexpected failure occurred while executing local background removal.');
+
+      return res.status(status).json({
+        error: errorLabel,
+        message: userMessage,
         details: error.stack || undefined
       });
     }
