@@ -28,10 +28,12 @@ export default function App() {
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Load local resource as File for live pipeline demo
   const handleTryDemoPreset = async (imageSrc: string, filename: string) => {
     try {
+      setErrorMsg(null);
       const response = await fetch(imageSrc);
       const blob = await response.blob();
       const file = new File([blob], filename, { type: 'image/png' });
@@ -50,6 +52,7 @@ export default function App() {
       setIsWorkspaceOpen(false);
       setUploadedFile(null);
       setSelectedPresetId(null);
+      setErrorMsg(null);
       // Wait for transition to complete
       setTimeout(() => {
         const el = document.getElementById(sectionId);
@@ -78,6 +81,11 @@ export default function App() {
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0];
       if (file.type.startsWith('image/')) {
+        if (file.size > 2 * 1024 * 1024) {
+          setErrorMsg('File size exceeds the 2MB limit. To prevent server out-of-memory errors on the Render web-service, please upload an image under 2MB.');
+          return;
+        }
+        setErrorMsg(null);
         setUploadedFile(file);
         setSelectedPresetId(null);
         setIsWorkspaceOpen(true);
@@ -90,6 +98,11 @@ export default function App() {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
       if (file.type.startsWith('image/')) {
+        if (file.size > 2 * 1024 * 1024) {
+          setErrorMsg('File size exceeds the 2MB limit. To prevent server out-of-memory errors on the Render web-service, please upload an image under 2MB.');
+          return;
+        }
+        setErrorMsg(null);
         setUploadedFile(file);
         setSelectedPresetId(null);
         setIsWorkspaceOpen(true);
@@ -112,6 +125,11 @@ export default function App() {
       if (e.clipboardData && e.clipboardData.files.length > 0) {
         const file = e.clipboardData.files[0];
         if (file.type.startsWith('image/')) {
+          if (file.size > 2 * 1024 * 1024) {
+            setErrorMsg('File size exceeds the 2MB limit. To prevent server out-of-memory errors on the Render web-service, please upload an image under 2MB.');
+            return;
+          }
+          setErrorMsg(null);
           setUploadedFile(file);
           setSelectedPresetId(null);
           setIsWorkspaceOpen(true);
@@ -197,6 +215,13 @@ export default function App() {
 
               {/* Huge Upload Area with Drag-and-Drop and Clipboard triggers */}
               <div className="mx-auto max-w-4xl px-6 sm:px-8 mt-12">
+                {errorMsg && (
+                  <div className="mb-6 rounded-2xl bg-rose-50 border border-rose-200/60 p-4 text-rose-800 text-sm font-semibold flex items-center gap-3 shadow-sm animate-fade-in mx-auto max-w-3xl justify-center">
+                    <span className="text-base">⚠️</span>
+                    <span>{errorMsg}</span>
+                  </div>
+                )}
+
                 <div
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
@@ -241,7 +266,7 @@ export default function App() {
                   </button>
 
                   <p className="mt-6 text-2xs text-slate-400 tracking-wide font-mono uppercase">
-                    Supported formats: JPG, PNG, WEBP. Max size: 10MB.
+                    Supported formats: JPG, PNG, WEBP. Max size: 2MB. (Render Memory Guard)
                   </p>
                 </div>
 

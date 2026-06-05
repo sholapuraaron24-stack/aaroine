@@ -1001,7 +1001,7 @@ export default function InteractiveWorkspace({
     const tempCanvas = document.createElement('canvas');
     
     // We downscale the base64 URL sent to `/api/remove-background` to save network and server memory.
-    const MAX_DIMENSION = 960; // perfect sweet spot for pro quality & <= 250MB active memory
+    const MAX_DIMENSION = 512; // 512px limit to guarantee low peak RAM usage <= 300MB
     let targetWidth = width;
     let targetHeight = height;
 

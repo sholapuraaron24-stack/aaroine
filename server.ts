@@ -136,6 +136,15 @@ async function startServer() {
       console.log(`Payload status: Received ${originalLength} bytes of image data, format indicated: ${mimeType}`);
       logMemoryProfile('PAYLOAD-PARSED-TO-BUFFER');
 
+      // Server-side limit check to prevent massive memory allocations
+      if (originalLength > 2 * 1024 * 1024) {
+        console.error('[SERVER DEBUGLOG] ERROR: Payload size too large. LIMIT: 2MB.');
+        return res.status(400).json({
+          error: 'IMAGE_TOO_LARGE',
+          message: `The uploaded image exceeds the 2MB RAM safety threshold (real size: ${(originalLength / 1024 / 1024).toFixed(2)}MB). Please downscale or use smaller files under 2MB.`
+        });
+      }
+
       const serverLogs: string[] = [];
       const logAndPush = (msg: string) => {
         const timeStr = new Date().toLocaleTimeString();
