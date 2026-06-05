@@ -134,7 +134,7 @@ export default function ComparisonSlider() {
             className="cutout-image w-full h-full object-cover relative"
             style={{ zIndex: 1 }}
             onLoad={() => console.log('Cutout loaded successfully:', dogRemoved)}
-            onError={(e) => console.error('Cutout failed to load', e)}
+            onError={(e) => console.error('Cutout failed to load:', e.currentTarget?.src || 'unknown')}
           />
           <div className="absolute right-4 bottom-4 bg-slate-900/60 backdrop-blur-xs text-white text-3xs font-bold uppercase tracking-wider px-2 py-1 rounded z-10">
             Background Removed
