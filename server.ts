@@ -15,7 +15,7 @@ import { PNG } from 'pngjs';
 // Load environment variables from .env file
 dotenv.config();
 
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const tempAssetsDir = '/tmp/imgly-assets';
 let hasCopiedAssets = false;
 
@@ -82,6 +82,15 @@ async function startServer() {
   // Parse JSON bodies with a generous limit to accommodate large base64 image uploads
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+  // Health check endpoint for deployment container checks (e.g. Railway, Render, etc.)
+  app.get('/api/health', (req, res) => {
+    res.json({
+      status: 'OK',
+      uptime: process.uptime(),
+      timestamp: new Date()
+    });
+  });
 
   // API Route to handle professional background removal using the local open-source rembg model
   app.post('/api/remove-background', async (req, res) => {
